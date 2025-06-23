@@ -192,22 +192,63 @@ const GuitarTuner = () => {
         console.log('Volume levels - RMS:', currentVolume.toFixed(2), 'Freq:', avgFreqVolume.toFixed(2), 'Final:', finalVolume.toFixed(2));
       }
 
-      // ALWAYS try pitch detection regardless of volume (for debugging)
-      const pitch = detectPitchRef.current(dataArray);
+      // ALWAYS try pitch detection with multiple algorithms
+      let pitch = null;
       
-      if (window.audioLoopCount <= 10 || window.audioLoopCount % 50 === 0) {
-        console.log('Pitch detection attempt - Raw pitch:', pitch, 'Volume check:', finalVolume > 0.01);
+      // Try YIN algorithm first (better for pure tones)
+      if (detectPitchRef.current?.yin) {
+        pitch = detectPitchRef.current.yin(dataArray);
       }
       
-      // Very low threshold for pitch detection
-      if (finalVolume > 0.01 || pitch) { // Much lower threshold OR if pitch detected regardless
-        if (pitch && pitch > 60 && pitch < 2000) {
-          console.log('🎵 PITCH DETECTED:', pitch.toFixed(2), 'Hz at volume:', finalVolume.toFixed(2));
-          setFrequency(pitch);
-          
-          const noteInfo = frequencyToNote(pitch);
-          setNote(`${noteInfo.note}${noteInfo.octave}`);
-          setCents(noteInfo.cents);
+      // If YIN fails, try autocorrelation (better for complex tones like guitar)
+      if (!pitch && detectPitchRef.current?.autocorrelation) {
+        pitch = detectPitchRef.current.autocorrelation(dataArray);
+      }
+      
+      // Also try a simple frequency domain approach for very low frequencies
+      if (!pitch && finalVolume > 1) {
+        const freqData = new Uint8Array(analyserRef.current.frequencyBinCount);
+        analyserRef.current.getByteFrequencyData(freqData);
+        
+        // Find the peak frequency
+        let maxIndex = 0;
+        let maxValue = 0;
+        for (let i = 1; i < freqData.length / 4; i++) { // Focus on lower frequencies
+          if (freqData[i] > maxValue) {
+            maxValue = freqData[i];
+            maxIndex = i;
+          }
+        }
+        
+        if (maxValue > 100) { // Threshold for peak detection
+          const peakFreq = (maxIndex * audioContextRef.current.sampleRate) / (analyserRef.current.fftSize);
+          if (peakFreq >= 60 && peakFreq <= 2000) {
+            pitch = peakFreq;
+            if (window.audioLoopCount <= 10 || window.audioLoopCount % 100 === 0) {
+              console.log('FFT peak detection found:', peakFreq.toFixed(2), 'Hz at bin', maxIndex);
+            }
+          }
+        }
+      }
+      
+      if (window.audioLoopCount <= 10 || window.audioLoopCount % 50 === 0) {
+        console.log('Pitch detection - Raw:', pitch ? pitch.toFixed(2) : 'null', 'Volume:', finalVolume.toFixed(2));
+      }
+      
+      // Accept pitch if found and in guitar range
+      if (pitch && pitch >= 60 && pitch <= 2000) {
+        console.log('🎵 PITCH DETECTED:', pitch.toFixed(2), 'Hz at volume:', finalVolume.toFixed(2));
+        setFrequency(pitch);
+        
+        const noteInfo = frequencyToNote(pitch);
+        setNote(`${noteInfo.note}${noteInfo.octave}`);
+        setCents(noteInfo.cents);
+      } else {
+        // Only clear if no pitch for a while and volume is low
+        if (frequency > 0 && finalVolume < 1) {
+          setFrequency(0);
+          setNote('');
+          setCents(0);
         }
       } else {
         // Only clear if no volume for a while
