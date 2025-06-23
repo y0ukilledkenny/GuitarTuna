@@ -112,21 +112,29 @@ const GuitarTuner = () => {
       const source = audioContextRef.current.createMediaStreamSource(stream);
       console.log('Media stream source created');
       
-      // Create analyser
+      // Create analyser with settings optimized for guitar
       analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 4096;
-      analyserRef.current.smoothingTimeConstant = 0.8;
-      analyserRef.current.minDecibels = -90;
+      analyserRef.current.fftSize = 8192; // Higher resolution for better low-frequency detection
+      analyserRef.current.smoothingTimeConstant = 0.3; // Less smoothing for better responsiveness
+      analyserRef.current.minDecibels = -100; // Lower minimum for quieter sounds
       analyserRef.current.maxDecibels = -10;
       source.connect(analyserRef.current);
       console.log('Analyser connected, fftSize:', analyserRef.current.fftSize);
 
-      // Initialize pitch detection
-      detectPitchRef.current = Pitchfinder.YIN({
-        sampleRate: audioContextRef.current.sampleRate,
-        threshold: 0.1
-      });
-      console.log('Pitch detection initialized');
+      // Initialize multiple pitch detection algorithms
+      detectPitchRef.current = {
+        yin: Pitchfinder.YIN({
+          sampleRate: audioContextRef.current.sampleRate,
+          threshold: 0.15, // Lower threshold for guitar
+          probabilityThreshold: 0.1 // Lower probability threshold
+        }),
+        autocorrelation: Pitchfinder.AMDF({
+          sampleRate: audioContextRef.current.sampleRate,
+          minFrequency: 60, // Guitar low E
+          maxFrequency: 2000
+        })
+      };
+      console.log('Pitch detection initialized with multiple algorithms');
 
       return true;
     } catch (error) {
