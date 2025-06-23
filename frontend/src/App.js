@@ -147,6 +147,11 @@ const GuitarTuner = () => {
     const dataArray = new Float32Array(bufferLength);
     analyserRef.current.getFloatTimeDomainData(dataArray);
 
+    // Always log that we're trying to analyze (for debugging)
+    if (Math.random() < 0.005) { // Log 0.5% of the time
+      console.log('Audio analysis running, buffer length:', bufferLength);
+    }
+
     // Calculate volume (RMS) - more sensitive calculation
     let sum = 0;
     for (let i = 0; i < bufferLength; i++) {
@@ -154,7 +159,6 @@ const GuitarTuner = () => {
     }
     const rms = Math.sqrt(sum / bufferLength);
     const currentVolume = Math.max(0, Math.min(100, rms * 100)); // Reduced multiplier
-    setVolume(currentVolume);
 
     // Also try frequency domain for volume detection
     const freqData = new Uint8Array(analyserRef.current.frequencyBinCount);
@@ -171,13 +175,13 @@ const GuitarTuner = () => {
     const finalVolume = Math.max(currentVolume, avgFreqVolume * 0.4);
     setVolume(finalVolume);
 
-    // Debug: Log volume occasionally
-    if (Math.random() < 0.01) { // Log 1% of the time
-      console.log('Volume levels - RMS:', currentVolume.toFixed(2), 'Freq:', avgFreqVolume.toFixed(2), 'Final:', finalVolume.toFixed(2));
+    // ALWAYS log volume (for debugging) - even if very low
+    if (Math.random() < 0.02) { // Log 2% of the time
+      console.log('Volume levels - RMS:', currentVolume.toFixed(2), 'Freq:', avgFreqVolume.toFixed(2), 'Final:', finalVolume.toFixed(2), 'Data sample:', dataArray[0].toFixed(4));
     }
 
-    // Detect pitch with lower threshold
-    if (finalVolume > 0.5) { // Much lower threshold
+    // Detect pitch with very low threshold for testing
+    if (finalVolume > 0.1) { // Even lower threshold
       const pitch = detectPitchRef.current(dataArray);
       
       if (pitch && pitch > 60 && pitch < 2000) { // Guitar frequency range
@@ -190,9 +194,11 @@ const GuitarTuner = () => {
       }
     } else {
       // Only clear if no volume for a while
-      setFrequency(0);
-      setNote('');
-      setCents(0);
+      if (frequency > 0) {
+        setFrequency(0);
+        setNote('');
+        setCents(0);
+      }
     }
 
     if (isListening) {
