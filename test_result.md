@@ -200,13 +200,9 @@ metadata:
   run_ui: true
 
 test_plan:
-  current_focus:
-    - "Real-time audio input and pitch detection"
-    - "Visual feedback system with tuning needle"
-    - "Microphone permissions and error handling"
-    - "Guitar tuning modes (Standard and Drop D)"
+  current_focus: []
   stuck_tasks: []
-  test_all: true
+  test_all: false
   test_priority: "high_first"
 
 agent_communication:
