@@ -250,13 +250,6 @@ const GuitarTuner = () => {
           setNote('');
           setCents(0);
         }
-      } else {
-        // Only clear if no volume for a while
-        if (frequency > 0) {
-          setFrequency(0);
-          setNote('');
-          setCents(0);
-        }
       }
 
     } catch (error) {
