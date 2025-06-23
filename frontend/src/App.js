@@ -192,52 +192,97 @@ const GuitarTuner = () => {
         console.log('Volume levels - RMS:', currentVolume.toFixed(2), 'Freq:', avgFreqVolume.toFixed(2), 'Final:', finalVolume.toFixed(2));
       }
 
-      // ALWAYS try pitch detection with multiple algorithms
+      // ALWAYS try pitch detection with multiple algorithms - WITH DETAILED DEBUGGING
       let pitch = null;
+      let pitchSource = 'none';
       
       // Try YIN algorithm first (better for pure tones)
       if (detectPitchRef.current?.yin) {
         pitch = detectPitchRef.current.yin(dataArray);
+        if (pitch) pitchSource = 'YIN';
       }
       
       // If YIN fails, try autocorrelation (better for complex tones like guitar)
       if (!pitch && detectPitchRef.current?.autocorrelation) {
         pitch = detectPitchRef.current.autocorrelation(dataArray);
+        if (pitch) pitchSource = 'AMDF';
       }
       
-      // Also try a simple frequency domain approach for very low frequencies
+      // Simple autocorrelation approach for guitar strings
+      if (!pitch && finalVolume > 2) {
+        // Simple autocorrelation implementation
+        const sampleRate = audioContextRef.current.sampleRate;
+        const minPeriod = Math.floor(sampleRate / 800); // Max 800 Hz
+        const maxPeriod = Math.floor(sampleRate / 60);  // Min 60 Hz (low guitar range)
+        
+        let bestCorrelation = 0;
+        let bestPeriod = 0;
+        
+        for (let period = minPeriod; period < Math.min(maxPeriod, dataArray.length / 2); period++) {
+          let correlation = 0;
+          for (let i = 0; i < dataArray.length - period; i++) {
+            correlation += dataArray[i] * dataArray[i + period];
+          }
+          
+          if (correlation > bestCorrelation) {
+            bestCorrelation = correlation;
+            bestPeriod = period;
+          }
+        }
+        
+        if (bestCorrelation > 0.01 && bestPeriod > 0) {
+          pitch = sampleRate / bestPeriod;
+          pitchSource = 'SimpleAutocorrelation';
+        }
+      }
+      
+      // FFT approach for very low frequencies (focusing on guitar range)
       if (!pitch && finalVolume > 1) {
         const freqData = new Uint8Array(analyserRef.current.frequencyBinCount);
         analyserRef.current.getByteFrequencyData(freqData);
         
-        // Find the peak frequency
-        let maxIndex = 0;
-        let maxValue = 0;
-        for (let i = 1; i < freqData.length / 4; i++) { // Focus on lower frequencies
-          if (freqData[i] > maxValue) {
-            maxValue = freqData[i];
-            maxIndex = i;
+        // Find multiple peaks and try to identify the fundamental
+        const peaks = [];
+        for (let i = 2; i < freqData.length / 8; i++) { // Focus on lower frequencies
+          if (freqData[i] > freqData[i-1] && freqData[i] > freqData[i+1] && freqData[i] > 80) {
+            const freq = (i * audioContextRef.current.sampleRate) / analyserRef.current.fftSize;
+            if (freq >= 60 && freq <= 800) { // Guitar fundamental range
+              peaks.push({ freq, magnitude: freqData[i] });
+            }
           }
         }
         
-        if (maxValue > 100) { // Threshold for peak detection
-          const peakFreq = (maxIndex * audioContextRef.current.sampleRate) / (analyserRef.current.fftSize);
-          if (peakFreq >= 60 && peakFreq <= 2000) {
-            pitch = peakFreq;
-            if (window.audioLoopCount <= 10 || window.audioLoopCount % 100 === 0) {
-              console.log('FFT peak detection found:', peakFreq.toFixed(2), 'Hz at bin', maxIndex);
-            }
+        // Sort peaks by magnitude
+        peaks.sort((a, b) => b.magnitude - a.magnitude);
+        
+        if (peaks.length > 0) {
+          // Try to find the fundamental frequency
+          const candidate = peaks[0].freq;
+          
+          // Check if this could be a guitar string frequency
+          const guitarFreqs = [82.41, 110.00, 146.83, 196.00, 246.94, 329.63]; // Standard tuning
+          const tolerance = 50; // Hz tolerance
+          
+          const isNearGuitarFreq = guitarFreqs.some(gf => Math.abs(candidate - gf) < tolerance);
+          
+          if (isNearGuitarFreq || peaks[0].magnitude > 100) {
+            pitch = candidate;
+            pitchSource = 'FFT-Peak';
           }
         }
       }
       
-      if (window.audioLoopCount <= 10 || window.audioLoopCount % 50 === 0) {
-        console.log('Pitch detection - Raw:', pitch ? pitch.toFixed(2) : 'null', 'Volume:', finalVolume.toFixed(2));
+      // Debug logging
+      if (window.audioLoopCount <= 20 || (finalVolume > 2 && window.audioLoopCount % 10 === 0)) {
+        console.log('🔍 Pitch Debug - Volume:', finalVolume.toFixed(2), 
+                   'Pitch:', pitch ? pitch.toFixed(2) + 'Hz' : 'null', 
+                   'Source:', pitchSource,
+                   'Data range:', Math.min(...dataArray).toFixed(4), 'to', Math.max(...dataArray).toFixed(4));
       }
       
       // Accept pitch if found and in guitar range
       if (pitch && pitch >= 60 && pitch <= 2000) {
-        console.log('🎵 PITCH DETECTED:', pitch.toFixed(2), 'Hz at volume:', finalVolume.toFixed(2));
+        console.log('🎵 GUITAR PITCH DETECTED:', pitch.toFixed(2), 'Hz via', pitchSource, 'at volume:', finalVolume.toFixed(2));
         setFrequency(pitch);
         
         const noteInfo = frequencyToNote(pitch);
