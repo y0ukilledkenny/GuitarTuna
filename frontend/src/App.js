@@ -11,6 +11,7 @@ const GuitarTuner = () => {
   const [volume, setVolume] = useState(0);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [selectedTuning, setSelectedTuning] = useState('standard');
+  const [browserSupport, setBrowserSupport] = useState({ supported: true, message: '' });
 
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -87,14 +88,57 @@ const GuitarTuner = () => {
     return null;
   };
 
+  // Check browser support and requirements
+  useEffect(() => {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isSecureContext = window.isSecureContext;
+    
+    console.log('Browser detection:', {
+      isIOS,
+      isSafari,
+      isSecureContext,
+      protocol: window.location.protocol
+    });
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setBrowserSupport({
+        supported: false,
+        message: 'Your browser does not support audio input. Please try Chrome or Firefox.'
+      });
+    } else if (isIOS && !isSecureContext) {
+      setBrowserSupport({
+        supported: false,
+        message: 'On iOS, this app requires HTTPS to access the microphone. Please use a secure connection.'
+      });
+    }
+  }, []);
+
   // Initialize audio context and pitch detection
   const initializeAudio = async () => {
     try {
       console.log('Requesting microphone access...');
       
       // Create audio context first
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('Audio context created, state:', audioContextRef.current.state);
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        console.log('Audio context created, state:', audioContextRef.current.state);
+      }
+
+      // For Safari, we need to handle permissions differently
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      
+      if (isIOS && isSafari) {
+        // On Safari iOS, we need to request permission explicitly
+        const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
+        console.log('Microphone permission status:', permissionStatus.state);
+        
+        if (permissionStatus.state === 'denied') {
+          alert('Microphone access is blocked. Please go to Settings > Safari > [Your Website] and enable microphone access.');
+          throw new Error('Microphone permission denied');
+        }
+      }
       
       // Ensure audio context is resumed
       if (audioContextRef.current.state === 'suspended') {
@@ -105,10 +149,9 @@ const GuitarTuner = () => {
       // Request microphone permission with more permissive constraints
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
-          // Remove strict constraints that might cause issues on mobile
-          echoCancellation: true, // Changed to true
-          autoGainControl: true,  // Changed to true
-          noiseSuppression: true  // Changed to true
+          echoCancellation: true,
+          autoGainControl: true,
+          noiseSuppression: true
         } 
       });
       
@@ -146,9 +189,14 @@ const GuitarTuner = () => {
       return true;
     } catch (error) {
       console.error('Error in initializeAudio:', error);
-      // More detailed error handling
-      if (error.name === 'NotAllowedError') {
-        alert('Please allow microphone access to use the tuner.');
+      
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      
+      if (isIOS && isSafari && error.name === 'NotAllowedError') {
+        alert('To enable microphone access on iOS Safari:\n\n1. Go to Settings > Safari\n2. Scroll down to the website settings\n3. Enable microphone access for this website\n4. Return to Safari and refresh the page');
+      } else if (error.name === 'NotAllowedError') {
+        alert('Please allow microphone access to use the tuner. If you denied permission, you may need to reset it in your browser settings.');
       } else if (error.name === 'NotFoundError') {
         alert('No microphone found. Please ensure your device has a working microphone.');
       } else if (error.name === 'NotReadableError') {
@@ -331,12 +379,6 @@ const GuitarTuner = () => {
   const toggleListening = async () => {
     try {
       if (!isListening) {
-        // Check if browser supports getUserMedia
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          alert('Your browser does not support audio input. Please try a modern browser like Chrome or Firefox.');
-          return;
-        }
-
         // Try to initialize audio
         if (!permissionGranted) {
           const success = await initializeAudio();
@@ -419,103 +461,119 @@ const GuitarTuner = () => {
         <p className="subtitle">Guitar Tuner</p>
       </div>
 
-      {/* Tuning Selection */}
-      <div className="tuning-selector">
-        <button 
-          className={`tuning-btn ${selectedTuning === 'standard' ? 'active' : ''}`}
-          onClick={() => setSelectedTuning('standard')}
-        >
-          Standard
-        </button>
-        <button 
-          className={`tuning-btn ${selectedTuning === 'dropD' ? 'active' : ''}`}
-          onClick={() => setSelectedTuning('dropD')}
-        >
-          Drop D
-        </button>
-      </div>
-
-      {/* Main Tuning Display */}
-      <div className="tuning-display">
-        {/* Current Note */}
-        <div className="note-display">
-          <div className="note-name">{note || '--'}</div>
-          <div className="frequency">{frequency ? `${frequency.toFixed(1)} Hz` : '--'}</div>
+      {!browserSupport.supported ? (
+        <div style={{
+          padding: '20px',
+          margin: '20px 0',
+          backgroundColor: 'rgba(255, 0, 0, 0.1)',
+          border: '1px solid rgba(255, 0, 0, 0.3)',
+          borderRadius: '8px',
+          color: 'white',
+          textAlign: 'center'
+        }}>
+          {browserSupport.message}
         </div>
-
-        {/* Tuning Meter */}
-        <div className="tuning-meter">
-          <div className="meter-scale">
-            <div className="scale-mark left">♭</div>
-            <div className="scale-mark center">●</div>
-            <div className="scale-mark right">♯</div>
+      ) : (
+        <>
+          {/* Tuning Selection */}
+          <div className="tuning-selector">
+            <button 
+              className={`tuning-btn ${selectedTuning === 'standard' ? 'active' : ''}`}
+              onClick={() => setSelectedTuning('standard')}
+            >
+              Standard
+            </button>
+            <button 
+              className={`tuning-btn ${selectedTuning === 'dropD' ? 'active' : ''}`}
+              onClick={() => setSelectedTuning('dropD')}
+            >
+              Drop D
+            </button>
           </div>
-          <div className="meter-container">
-            <div className="meter-track"></div>
-            <div 
-              className={`meter-needle ${tuningAccuracy?.inTune ? 'in-tune' : ''}`}
-              style={{ 
-                left: `${50 + (meterPosition * 0.4)}%`,
-                opacity: frequency > 0 ? 1 : 0
-              }}
-            ></div>
-          </div>
-          <div className="cents-display">
-            {frequency > 0 && tuningAccuracy ? 
-              `${tuningAccuracy.cents > 0 ? '+' : ''}${tuningAccuracy.cents.toFixed(0)}¢` : 
-              '--'
-            }
-          </div>
-        </div>
 
-        {/* Target String Info */}
-        {tuningAccuracy && (
-          <div className="target-info">
-            <div className="target-note">Target: {tuningAccuracy.targetNote}</div>
-            <div className="target-string">String {tuningAccuracy.targetString}</div>
-          </div>
-        )}
-
-        {/* Status Indicator */}
-        <div className={`status-indicator ${tuningAccuracy?.inTune ? 'in-tune' : frequency > 0 ? 'tuning' : 'waiting'}`}>
-          {tuningAccuracy?.inTune ? '✓ IN TUNE' : frequency > 0 ? 'TUNING...' : 'PLAY A STRING'}
-        </div>
-      </div>
-
-      {/* Volume Indicator */}
-      <div className="volume-indicator">
-        <div className="volume-label">Input Level</div>
-        <div className="volume-bar">
-          <div 
-            className="volume-fill"
-            style={{ width: `${volume}%` }}
-          ></div>
-        </div>
-      </div>
-
-      {/* Control Button */}
-      <div className="controls">
-        <button 
-          className={`listen-btn ${isListening ? 'listening' : ''}`}
-          onClick={toggleListening}
-        >
-          {isListening ? '🎤 LISTENING...' : '🎤 START TUNING'}
-        </button>
-      </div>
-
-      {/* String Reference */}
-      <div className="string-reference">
-        <h3>String Reference ({selectedTuning === 'standard' ? 'Standard' : 'Drop D'})</h3>
-        <div className="strings-grid">
-          {standardTuning[selectedTuning].map((string, index) => (
-            <div key={index} className="string-item">
-              <div className="string-number">{string.string}</div>
-              <div className="string-note">{string.note}</div>
-              <div className="string-freq">{string.freq.toFixed(1)}Hz</div>
+          {/* Main Tuning Display */}
+          <div className="tuning-display">
+            {/* Current Note */}
+            <div className="note-display">
+              <div className="note-name">{note || '--'}</div>
+              <div className="frequency">{frequency ? `${frequency.toFixed(1)} Hz` : '--'}</div>
             </div>
-          ))}
-        </div>
-      </div>
+
+            {/* Tuning Meter */}
+            <div className="tuning-meter">
+              <div className="meter-scale">
+                <div className="scale-mark left">♭</div>
+                <div className="scale-mark center">●</div>
+                <div className="scale-mark right">♯</div>
+              </div>
+              <div className="meter-container">
+                <div className="meter-track"></div>
+                <div 
+                  className={`meter-needle ${tuningAccuracy?.inTune ? 'in-tune' : ''}`}
+                  style={{ 
+                    left: `${50 + (meterPosition * 0.4)}%`,
+                    opacity: frequency > 0 ? 1 : 0
+                  }}
+                ></div>
+              </div>
+              <div className="cents-display">
+                {frequency > 0 && tuningAccuracy ? 
+                  `${tuningAccuracy.cents > 0 ? '+' : ''}${tuningAccuracy.cents.toFixed(0)}¢` : 
+                  '--'
+                }
+              </div>
+            </div>
+
+            {/* Target String Info */}
+            {tuningAccuracy && (
+              <div className="target-info">
+                <div className="target-note">Target: {tuningAccuracy.targetNote}</div>
+                <div className="target-string">String {tuningAccuracy.targetString}</div>
+              </div>
+            )}
+
+            {/* Status Indicator */}
+            <div className={`status-indicator ${tuningAccuracy?.inTune ? 'in-tune' : frequency > 0 ? 'tuning' : 'waiting'}`}>
+              {tuningAccuracy?.inTune ? '✓ IN TUNE' : frequency > 0 ? 'TUNING...' : 'PLAY A STRING'}
+            </div>
+          </div>
+
+          {/* Volume Indicator */}
+          <div className="volume-indicator">
+            <div className="volume-label">Input Level</div>
+            <div className="volume-bar">
+              <div 
+                className="volume-fill"
+                style={{ width: `${volume}%` }}
+              ></div>
+            </div>
+          </div>
+
+          {/* Control Button */}
+          <div className="controls">
+            <button 
+              className={`listen-btn ${isListening ? 'listening' : ''}`}
+              onClick={toggleListening}
+            >
+              {isListening ? '🎤 LISTENING...' : '🎤 START TUNING'}
+            </button>
+          </div>
+
+          {/* String Reference */}
+          <div className="string-reference">
+            <h3>String Reference ({selectedTuning === 'standard' ? 'Standard' : 'Drop D'})</h3>
+            <div className="strings-grid">
+              {standardTuning[selectedTuning].map((string, index) => (
+                <div key={index} className="string-item">
+                  <div className="string-number">{string.string}</div>
+                  <div className="string-note">{string.note}</div>
+                  <div className="string-freq">{string.freq.toFixed(1)}Hz</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };
