@@ -89,6 +89,8 @@ const GuitarTuner = () => {
   // Initialize audio context and pitch detection
   const initializeAudio = async () => {
     try {
+      console.log('Requesting microphone access...');
+      
       // Request microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -99,24 +101,32 @@ const GuitarTuner = () => {
         } 
       });
       
+      console.log('Microphone access granted, stream:', stream);
       streamRef.current = stream;
       setPermissionGranted(true);
 
       // Create audio context
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      console.log('Audio context created, sample rate:', audioContextRef.current.sampleRate);
+      
       const source = audioContextRef.current.createMediaStreamSource(stream);
+      console.log('Media stream source created');
       
       // Create analyser
       analyserRef.current = audioContextRef.current.createAnalyser();
       analyserRef.current.fftSize = 4096;
       analyserRef.current.smoothingTimeConstant = 0.8;
+      analyserRef.current.minDecibels = -90;
+      analyserRef.current.maxDecibels = -10;
       source.connect(analyserRef.current);
+      console.log('Analyser connected, fftSize:', analyserRef.current.fftSize);
 
       // Initialize pitch detection
       detectPitchRef.current = Pitchfinder.YIN({
         sampleRate: audioContextRef.current.sampleRate,
         threshold: 0.1
       });
+      console.log('Pitch detection initialized');
 
       return true;
     } catch (error) {
@@ -128,26 +138,50 @@ const GuitarTuner = () => {
 
   // Audio analysis loop
   const analyzeAudio = () => {
-    if (!analyserRef.current || !detectPitchRef.current) return;
+    if (!analyserRef.current || !detectPitchRef.current) {
+      console.log('Missing analyser or pitch detector');
+      return;
+    }
 
     const bufferLength = analyserRef.current.fftSize;
     const dataArray = new Float32Array(bufferLength);
     analyserRef.current.getFloatTimeDomainData(dataArray);
 
-    // Calculate volume (RMS)
+    // Calculate volume (RMS) - more sensitive calculation
     let sum = 0;
     for (let i = 0; i < bufferLength; i++) {
       sum += dataArray[i] * dataArray[i];
     }
     const rms = Math.sqrt(sum / bufferLength);
-    const currentVolume = Math.max(0, Math.min(100, rms * 1000));
+    const currentVolume = Math.max(0, Math.min(100, rms * 100)); // Reduced multiplier
     setVolume(currentVolume);
 
-    // Detect pitch only if there's sufficient volume
-    if (currentVolume > 1) {
+    // Also try frequency domain for volume detection
+    const freqData = new Uint8Array(analyserRef.current.frequencyBinCount);
+    analyserRef.current.getByteFrequencyData(freqData);
+    
+    // Calculate average frequency domain volume
+    let freqSum = 0;
+    for (let i = 0; i < freqData.length; i++) {
+      freqSum += freqData[i];
+    }
+    const avgFreqVolume = freqSum / freqData.length;
+    
+    // Use the higher of the two volume measurements
+    const finalVolume = Math.max(currentVolume, avgFreqVolume * 0.4);
+    setVolume(finalVolume);
+
+    // Debug: Log volume occasionally
+    if (Math.random() < 0.01) { // Log 1% of the time
+      console.log('Volume levels - RMS:', currentVolume.toFixed(2), 'Freq:', avgFreqVolume.toFixed(2), 'Final:', finalVolume.toFixed(2));
+    }
+
+    // Detect pitch with lower threshold
+    if (finalVolume > 0.5) { // Much lower threshold
       const pitch = detectPitchRef.current(dataArray);
       
       if (pitch && pitch > 60 && pitch < 2000) { // Guitar frequency range
+        console.log('Pitch detected:', pitch.toFixed(2), 'Hz');
         setFrequency(pitch);
         
         const noteInfo = frequencyToNote(pitch);
@@ -155,6 +189,7 @@ const GuitarTuner = () => {
         setCents(noteInfo.cents);
       }
     } else {
+      // Only clear if no volume for a while
       setFrequency(0);
       setNote('');
       setCents(0);
@@ -173,14 +208,19 @@ const GuitarTuner = () => {
         if (!success) return;
       }
       
-      if (audioContextRef.current.state === 'suspended') {
+      // Always try to resume audio context
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        console.log('Resuming suspended audio context...');
         await audioContextRef.current.resume();
+        console.log('Audio context state:', audioContextRef.current.state);
       }
       
       setIsListening(true);
+      console.log('Starting audio analysis...');
       analyzeAudio();
     } else {
       setIsListening(false);
+      console.log('Stopping audio analysis...');
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
