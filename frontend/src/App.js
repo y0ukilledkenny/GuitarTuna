@@ -91,13 +91,23 @@ const GuitarTuner = () => {
     try {
       console.log('Requesting microphone access...');
       
-      // Request microphone permission
+      // Create audio context first
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      console.log('Audio context created, state:', audioContextRef.current.state);
+      
+      // Ensure audio context is resumed
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+        console.log('Audio context resumed, new state:', audioContextRef.current.state);
+      }
+      
+      // Request microphone permission with more permissive constraints
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
-          echoCancellation: false,
-          autoGainControl: false,
-          noiseSuppression: false,
-          latency: 0
+          // Remove strict constraints that might cause issues on mobile
+          echoCancellation: true, // Changed to true
+          autoGainControl: true,  // Changed to true
+          noiseSuppression: true  // Changed to true
         } 
       });
       
@@ -105,32 +115,28 @@ const GuitarTuner = () => {
       streamRef.current = stream;
       setPermissionGranted(true);
 
-      // Create audio context
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('Audio context created, sample rate:', audioContextRef.current.sampleRate);
-      
       const source = audioContextRef.current.createMediaStreamSource(stream);
       console.log('Media stream source created');
       
       // Create analyser with settings optimized for guitar
       analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 8192; // Higher resolution for better low-frequency detection
-      analyserRef.current.smoothingTimeConstant = 0.3; // Less smoothing for better responsiveness
-      analyserRef.current.minDecibels = -100; // Lower minimum for quieter sounds
+      analyserRef.current.fftSize = 8192;
+      analyserRef.current.smoothingTimeConstant = 0.3;
+      analyserRef.current.minDecibels = -100;
       analyserRef.current.maxDecibels = -10;
       source.connect(analyserRef.current);
       console.log('Analyser connected, fftSize:', analyserRef.current.fftSize);
 
-      // Initialize multiple pitch detection algorithms
+      // Initialize pitch detection algorithms
       detectPitchRef.current = {
         yin: Pitchfinder.YIN({
           sampleRate: audioContextRef.current.sampleRate,
-          threshold: 0.15, // Lower threshold for guitar
-          probabilityThreshold: 0.1 // Lower probability threshold
+          threshold: 0.15,
+          probabilityThreshold: 0.1
         }),
         autocorrelation: Pitchfinder.AMDF({
           sampleRate: audioContextRef.current.sampleRate,
-          minFrequency: 60, // Guitar low E
+          minFrequency: 60,
           maxFrequency: 2000
         })
       };
@@ -138,7 +144,17 @@ const GuitarTuner = () => {
 
       return true;
     } catch (error) {
-      console.error('Error accessing microphone:', error);
+      console.error('Error in initializeAudio:', error);
+      // More detailed error handling
+      if (error.name === 'NotAllowedError') {
+        alert('Please allow microphone access to use the tuner.');
+      } else if (error.name === 'NotFoundError') {
+        alert('No microphone found. Please ensure your device has a working microphone.');
+      } else if (error.name === 'NotReadableError') {
+        alert('Could not access your microphone. Please try reloading the page.');
+      } else {
+        alert('Error accessing microphone: ' + error.message);
+      }
       setPermissionGranted(false);
       return false;
     }
@@ -312,34 +328,56 @@ const GuitarTuner = () => {
 
   // Start/stop listening
   const toggleListening = async () => {
-    if (!isListening) {
-      if (!permissionGranted) {
-        const success = await initializeAudio();
-        if (!success) return;
+    try {
+      if (!isListening) {
+        // Check if browser supports getUserMedia
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert('Your browser does not support audio input. Please try a modern browser like Chrome or Firefox.');
+          return;
+        }
+
+        // Try to initialize audio
+        if (!permissionGranted) {
+          const success = await initializeAudio();
+          if (!success) return;
+        }
+        
+        // Double check audio context state
+        if (audioContextRef.current) {
+          // On iOS, we need to resume the context on every user interaction
+          if (audioContextRef.current.state === 'suspended') {
+            await audioContextRef.current.resume();
+            console.log('Audio context resumed on user interaction');
+          }
+          
+          // Verify the context is actually running
+          if (audioContextRef.current.state !== 'running') {
+            console.error('Audio context failed to start:', audioContextRef.current.state);
+            alert('Failed to start audio processing. Please try again.');
+            return;
+          }
+        }
+        
+        setIsListening(true);
+        console.log('Starting audio analysis...');
+        
+        // Reset counter for new session
+        window.audioLoopCount = 0;
+        
+        // Start the loop
+        analyzeAudio();
+      } else {
+        setIsListening(false);
+        console.log('Stopping audio analysis...');
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
       }
-      
-      // Always try to resume audio context
-      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-        console.log('Resuming suspended audio context...');
-        await audioContextRef.current.resume();
-        console.log('Audio context state:', audioContextRef.current.state);
-      }
-      
-      setIsListening(true);
-      console.log('Starting audio analysis...');
-      
-      // Reset counter for new session
-      window.audioLoopCount = 0;
-      
-      // Start the loop
-      analyzeAudio();
-    } else {
+    } catch (error) {
+      console.error('Error in toggleListening:', error);
+      alert('An error occurred while trying to start the tuner. Please reload the page and try again.');
       setIsListening(false);
-      console.log('Stopping audio analysis...');
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
     }
   };
 
