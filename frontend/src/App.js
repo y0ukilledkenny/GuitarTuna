@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as Pitchfinder from 'pitchfinder';
 import './App.css';
+import packageJson from '../package.json';
 
 const GuitarTuner = () => {
   const [isListening, setIsListening] = useState(false);
@@ -523,6 +524,9 @@ function App() {
   return (
     <div className="App">
       <GuitarTuner />
+      <footer style={{ textAlign: 'center', marginTop: 24, color: '#aaa', fontSize: '0.9rem' }}>
+        Version: {packageJson.version}
+      </footer>
     </div>
   );
 }
