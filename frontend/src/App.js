@@ -156,13 +156,13 @@ const GuitarTuner = () => {
       const dataArray = new Float32Array(bufferLength);
       analyserRef.current.getFloatTimeDomainData(dataArray);
 
-      // Calculate volume (RMS) - more sensitive calculation
+      // Calculate volume (RMS) - much more sensitive calculation
       let sum = 0;
       for (let i = 0; i < bufferLength; i++) {
         sum += dataArray[i] * dataArray[i];
       }
       const rms = Math.sqrt(sum / bufferLength);
-      const currentVolume = Math.max(0, Math.min(100, rms * 100));
+      const currentVolume = Math.max(0, Math.min(100, rms * 1000)); // Increased multiplier
 
       // Also try frequency domain for volume detection
       const freqData = new Uint8Array(analyserRef.current.frequencyBinCount);
@@ -176,7 +176,7 @@ const GuitarTuner = () => {
       const avgFreqVolume = freqSum / freqData.length;
       
       // Use the higher of the two volume measurements
-      const finalVolume = Math.max(currentVolume, avgFreqVolume * 0.4);
+      const finalVolume = Math.max(currentVolume, avgFreqVolume);
       setVolume(finalVolume);
 
       // Log volume more frequently for debugging
@@ -184,12 +184,17 @@ const GuitarTuner = () => {
         console.log('Volume levels - RMS:', currentVolume.toFixed(2), 'Freq:', avgFreqVolume.toFixed(2), 'Final:', finalVolume.toFixed(2));
       }
 
-      // Detect pitch with very low threshold for testing
-      if (finalVolume > 0.1) {
-        const pitch = detectPitchRef.current(dataArray);
-        
+      // ALWAYS try pitch detection regardless of volume (for debugging)
+      const pitch = detectPitchRef.current(dataArray);
+      
+      if (window.audioLoopCount <= 10 || window.audioLoopCount % 50 === 0) {
+        console.log('Pitch detection attempt - Raw pitch:', pitch, 'Volume check:', finalVolume > 0.01);
+      }
+      
+      // Very low threshold for pitch detection
+      if (finalVolume > 0.01 || pitch) { // Much lower threshold OR if pitch detected regardless
         if (pitch && pitch > 60 && pitch < 2000) {
-          console.log('Pitch detected:', pitch.toFixed(2), 'Hz');
+          console.log('🎵 PITCH DETECTED:', pitch.toFixed(2), 'Hz at volume:', finalVolume.toFixed(2));
           setFrequency(pitch);
           
           const noteInfo = frequencyToNote(pitch);
