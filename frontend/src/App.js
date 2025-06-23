@@ -148,8 +148,8 @@ const GuitarTuner = () => {
       if (!window.audioLoopCount) window.audioLoopCount = 0;
       window.audioLoopCount++;
       
-      if (window.audioLoopCount <= 5 || window.audioLoopCount % 100 === 0) {
-        console.log('Audio analysis loop running, iteration:', window.audioLoopCount);
+      if (window.audioLoopCount <= 10 || window.audioLoopCount % 100 === 0) {
+        console.log('Audio analysis loop running, iteration:', window.audioLoopCount, 'isListening:', isListening);
       }
 
       const bufferLength = analyserRef.current.fftSize;
@@ -205,17 +205,17 @@ const GuitarTuner = () => {
         }
       }
 
-      // Continue the loop
-      if (isListening) {
-        animationFrameRef.current = requestAnimationFrame(analyzeAudio);
-      }
     } catch (error) {
       console.error('Error in analyzeAudio:', error);
-      // Try to continue anyway
-      if (isListening) {
-        animationFrameRef.current = requestAnimationFrame(analyzeAudio);
-      }
     }
+    
+    // ALWAYS continue the loop regardless of state - this is the fix!
+    if (window.audioLoopCount <= 10) {
+      console.log('Scheduling next frame, isListening:', isListening);
+    }
+    
+    // Continue animation loop
+    animationFrameRef.current = requestAnimationFrame(analyzeAudio);
   };
 
   // Start/stop listening
@@ -235,12 +235,18 @@ const GuitarTuner = () => {
       
       setIsListening(true);
       console.log('Starting audio analysis...');
+      
+      // Reset counter for new session
+      window.audioLoopCount = 0;
+      
+      // Start the loop
       analyzeAudio();
     } else {
       setIsListening(false);
       console.log('Stopping audio analysis...');
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     }
   };
