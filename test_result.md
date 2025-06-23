@@ -132,6 +132,9 @@ frontend:
         - working: true
           agent: "testing"
           comment: "UI elements for pitch detection are correctly implemented. The code for audio processing is well-structured with proper frequency range filtering (60-2000 Hz) and volume threshold detection. Note that actual microphone access couldn't be fully tested in the test environment, but the implementation follows best practices."
+        - working: false
+          agent: "user"
+          comment: "User feedback: Microphone permission granted but no audio processing happening. Volume indicator not fluctuating and no pitch detection feedback when playing guitar strings. Audio input not being detected at all."
 
   - task: "Visual feedback system with tuning needle"
     implemented: true
